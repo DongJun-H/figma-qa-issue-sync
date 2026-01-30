@@ -370,10 +370,10 @@ function buildIssueBody(input: {
   const annotationProps = formatAnnotationProperties(input.node, input.annotation, input.componentName);
   const componentProps = formatComponentProperties(input.node);
   const annotationLines = annotationProps.length
-    ? annotationProps.map((prop) => `- **${prop.name}**: ${prop.value}`)
+    ? annotationProps.reduce<string[]>((acc, prop) => acc.concat(formatPropertyLines(prop)), [])
     : ['- 없음'];
   const componentLines = componentProps.length
-    ? componentProps.map((prop) => `- **${prop.name}**: ${prop.value}`)
+    ? componentProps.reduce<string[]>((acc, prop) => acc.concat(formatPropertyLines(prop)), [])
     : ['- 없음'];
 
   return [
@@ -386,11 +386,10 @@ function buildIssueBody(input: {
     '## 문제 설명',
     input.annotationText,
     '',
-    '## 상세 스펙',
-    '### Annotation properties',
+    '### Annotation에 함께 등록된 properties',
     ...annotationLines,
     '',
-    '### Component properties',
+    '## 상세 스펙',
     ...componentLines,
   ].join('\n');
 }
@@ -399,43 +398,45 @@ function formatAnnotationProperties(
   node: SceneNode,
   annotation: Annotation,
   componentName: string
-): Array<{ name: string; value: string }> {
+): Array<{ name: string; lines: string[] }> {
   const properties = annotation.properties ?? [];
-  const lines: Array<{ name: string; value: string }> = [];
+  const lines: Array<{ name: string; lines: string[] }> = [];
 
   for (const property of properties) {
     const value = getAnnotationPropertyValue(node, property.type, componentName);
-    if (!value) continue;
-    lines.push({ name: property.type, value });
+    if (value === null || value === undefined) continue;
+    const formattedLines = formatValueLines(value);
+    if (formattedLines.length === 0) continue;
+    lines.push({ name: property.type, lines: formattedLines });
   }
 
   return lines;
 }
 
-function formatComponentProperties(node: SceneNode): Array<{ name: string; value: string }> {
+function formatComponentProperties(node: SceneNode): Array<{ name: string; lines: string[] }> {
   const instance = getContainingInstance(node);
   if (!instance) return [];
 
   const entries = Object.entries(instance.componentProperties ?? {});
   if (entries.length === 0) return [];
 
-  const normalized = new Map<string, string>();
+  const normalized = new Map<string, string[]>();
   for (const [rawName, meta] of entries) {
     const baseName = rawName.split('#')[0];
     const value = meta?.value;
-    const formatted = formatValue(value);
-    if (!formatted) continue;
+    const formatted = formatValueLines(value);
+    if (formatted.length === 0) continue;
     normalized.set(baseName, formatted);
   }
 
-  return Array.from(normalized.entries()).map(([name, value]) => ({ name, value }));
+  return Array.from(normalized.entries()).map(([name, lines]) => ({ name, lines }));
 }
 
 function getAnnotationPropertyValue(
   node: SceneNode,
   type: AnnotationPropertyType,
   componentName: string
-): string | null {
+): any {
   const anyNode = node as any;
 
   switch (type) {
@@ -448,11 +449,12 @@ function getAnnotationPropertyValue(
         typeof anyNode.paddingBottom === 'number' ||
         typeof anyNode.paddingLeft === 'number'
       ) {
-        const top = formatValue(anyNode.paddingTop);
-        const right = formatValue(anyNode.paddingRight);
-        const bottom = formatValue(anyNode.paddingBottom);
-        const left = formatValue(anyNode.paddingLeft);
-        return `top:${top}, right:${right}, bottom:${bottom}, left:${left}`;
+        return {
+          top: anyNode.paddingTop,
+          right: anyNode.paddingRight,
+          bottom: anyNode.paddingBottom,
+          left: anyNode.paddingLeft,
+        };
       }
       return null;
     }
@@ -460,7 +462,7 @@ function getAnnotationPropertyValue(
       const primary = anyNode.primaryAxisAlignItems;
       const counter = anyNode.counterAxisAlignItems;
       if (primary || counter) {
-        return `primary:${formatValue(primary)}, counter:${formatValue(counter)}`;
+        return { primary, counter };
       }
       return null;
     }
@@ -484,15 +486,78 @@ function getAnnotationPropertyValue(
     }
     default: {
       if (typeof anyNode[type] !== 'undefined') {
-        const formatted = formatValue(anyNode[type]);
-        return formatted || null;
+        return anyNode[type];
       }
       return null;
     }
   }
 }
 
-function formatValue(value: any): string {
+function formatPropertyLines(prop: { name: string; lines: string[] }): string[] {
+  if (prop.lines.length === 1 && !prop.lines[0].startsWith('- ')) {
+    return [`- **${prop.name}**: ${prop.lines[0]}`];
+  }
+
+  return [`- **${prop.name}**:`, ...prop.lines.map((line) => `  ${line}`)];
+}
+
+function formatValueLines(value: any): string[] {
+  if (value === undefined || value === null) return [];
+  if (isPrimitive(value)) {
+    return [formatPrimitive(value)];
+  }
+
+  return formatNestedLines(value);
+}
+
+function formatNestedLines(value: any): string[] {
+  if (value === undefined || value === null) return [];
+  if (isPrimitive(value)) {
+    return [`- ${formatPrimitive(value)}`];
+  }
+
+  if (Array.isArray(value)) {
+    const lines: string[] = [];
+    value.forEach((item, index) => {
+      if (isPrimitive(item)) {
+        lines.push(`- ${formatPrimitive(item)}`);
+        return;
+      }
+      lines.push(`- item ${index + 1}:`);
+      lines.push(...indentLines(formatNestedLines(item)));
+    });
+    return lines;
+  }
+
+  if (typeof value === 'object') {
+    const lines: string[] = [];
+    for (const [key, entry] of Object.entries(value)) {
+      if (isPrimitive(entry)) {
+        lines.push(`- ${key}: ${formatPrimitive(entry)}`);
+      } else {
+        lines.push(`- ${key}:`);
+        lines.push(...indentLines(formatNestedLines(entry)));
+      }
+    }
+    return lines;
+  }
+
+  return [`- ${String(value)}`];
+}
+
+function indentLines(lines: string[]): string[] {
+  return lines.map((line) => `  ${line}`);
+}
+
+function isPrimitive(value: any): boolean {
+  return (
+    value === figma.mixed ||
+    value === null ||
+    ['string', 'number', 'boolean'].includes(typeof value)
+  );
+}
+
+function formatPrimitive(value: any): string {
   if (value === figma.mixed) return 'MIXED';
   if (value === undefined || value === null) return '';
   if (typeof value === 'string') return value;
