@@ -156,10 +156,16 @@ async function addIssueToProject(token, projectId, contentId) {
       }),
     });
 
-    if (!response.ok) return response.status;
-    return response.status;
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload?.errors?.length) {
+      const errorMessage = payload?.errors
+        ? payload.errors.map((error) => error.message).join('; ')
+        : payload?.message || response.statusText;
+      return { status: response.status, error: errorMessage };
+    }
+    return { status: response.status };
   } catch (error) {
-    return 0;
+    return { status: 0, error: error?.message || 'Unknown error' };
   }
 }
 
@@ -225,7 +231,10 @@ async function fetchProjectList(token, ownerType, login) {
     return null;
   }
 
-  const data = await response.json();
+  const data = await response.json().catch(() => ({}));
+  if (data?.errors?.length) {
+    console.error('Project list lookup error', data.errors);
+  }
   return data?.data;
 }
 
@@ -269,6 +278,9 @@ async function fetchProjectByNumber(token, ownerType, login, projectNumber) {
     return null;
   }
 
-  const data = await response.json();
+  const data = await response.json().catch(() => ({}));
+  if (data?.errors?.length) {
+    console.error('Project number lookup error', data.errors);
+  }
   return data?.data;
 }
