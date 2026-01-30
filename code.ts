@@ -170,7 +170,7 @@ async function syncQaAnnotations(settings: SyncSettings): Promise<void> {
 
           const componentName = await getComponentName(node);
           const layerName = getTopLevelFrameName(node);
-          const title = `[QA] Fix (${layerName}) ${componentName}`;
+          const title = `[QA] Fix ${componentName} in ${layerName}`;
           const link = buildFigmaLink(fileKey, fileName, node.id);
           const body = buildIssueBody({
             annotationText: annotationText || '(No annotation text)',
@@ -369,8 +369,6 @@ function buildIssueBody(input: {
 }): string {
   const annotationProps = formatAnnotationProperties(input.node, input.annotation, input.componentName);
   const componentProps = formatComponentProperties(input.node);
-  const date = formatDate(new Date());
-
   const annotationLines = annotationProps.length
     ? annotationProps.map((prop) => `- **${prop.name}**: ${prop.value}`)
     : ['- 없음'];
@@ -384,13 +382,9 @@ function buildIssueBody(input: {
     '## 발견 위치',
     `- **화면**: ${input.layerName}`,
     `- **Figma 링크**: ${input.figmaLink}`,
-    `- **발견 일시**: ${date}`,
     '',
     '## 문제 설명',
     input.annotationText,
-    '',
-    '## 현재 상태 (스크린샷)',
-    '이미지 미첨부',
     '',
     '## 상세 스펙',
     '### Annotation properties',
@@ -515,13 +509,6 @@ function formatValue(value: any): string {
     }
   }
   return String(value);
-}
-
-function formatDate(date: Date): string {
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, '0');
-  const day = `${date.getDate()}`.padStart(2, '0');
-  return `${year}-${month}-${day}`;
 }
 
 function getContainingInstance(node: SceneNode): InstanceNode | null {
