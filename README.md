@@ -12,6 +12,7 @@ Figma Dev Mode annotation 중 **QA 카테고리**만 수동으로 동기화해 G
    - `GITHUB_TOKEN`: Fine-grained PAT (Issues: Read & Write 권한)
    - `GITHUB_PROJECT_NAME` (선택): GitHub Project v2 이름 (예: `DAYO 2.0`)
    - `GITHUB_PROJECT_OWNER` (선택): 프로젝트 소유자 (예: `Daily-DAYO`)
+   - `GITHUB_PROJECT_NUMBER` (선택): 프로젝트 번호 (예: `5`) — 설정 시 이름보다 우선
    - `QA_SYNC_SECRET` (선택): 플러그인과 서버 간 간단한 공유 시크릿
 3. 배포 후, Vercel 엔드포인트는 `/api/qa-issues`입니다.
 

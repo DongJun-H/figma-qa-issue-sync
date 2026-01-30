@@ -38,6 +38,8 @@ module.exports = async (req, res) => {
   const { owner, repo, issues } = payload || {};
   const projectName = payload?.projectName || process.env.GITHUB_PROJECT_NAME;
   const projectOwner = payload?.projectOwner || process.env.GITHUB_PROJECT_OWNER || owner;
+  const projectNumberRaw = payload?.projectNumber || process.env.GITHUB_PROJECT_NUMBER;
+  const projectNumber = projectNumberRaw ? Number(projectNumberRaw) : null;
   if (!owner || !repo || !Array.isArray(issues)) {
     return res.status(400).json({ error: 'Invalid payload: owner, repo, issues required' });
   }
@@ -47,7 +49,13 @@ module.exports = async (req, res) => {
   let failed = 0;
   let projectId = null;
 
-  if (projectName && projectOwner) {
+  if (projectNumber && projectOwner) {
+    try {
+      projectId = await fetchProjectIdByNumber(token, projectOwner, projectNumber);
+    } catch (error) {
+      projectId = null;
+    }
+  } else if (projectName && projectOwner) {
     try {
       projectId = await fetchProjectId(token, projectOwner, projectName);
     } catch (error) {
@@ -167,6 +175,18 @@ async function fetchProjectId(token, owner, projectName) {
   return null;
 }
 
+async function fetchProjectIdByNumber(token, owner, projectNumber) {
+  const orgResult = await fetchProjectByNumber(token, 'organization', owner, projectNumber);
+  const orgProject = orgResult?.organization?.projectV2;
+  if (orgProject?.id) return orgProject.id;
+
+  const userResult = await fetchProjectByNumber(token, 'user', owner, projectNumber);
+  const userProject = userResult?.user?.projectV2;
+  if (userProject?.id) return userProject.id;
+
+  return null;
+}
+
 async function fetchProjectList(token, ownerType, login) {
   const query = ownerType === 'organization'
     ? `
@@ -198,6 +218,50 @@ async function fetchProjectList(token, ownerType, login) {
     body: JSON.stringify({
       query,
       variables: { login },
+    }),
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const data = await response.json();
+  return data?.data;
+}
+
+async function fetchProjectByNumber(token, ownerType, login, projectNumber) {
+  const query = ownerType === 'organization'
+    ? `
+      query($login: String!, $number: Int!) {
+        organization(login: $login) {
+          projectV2(number: $number) {
+            id
+            title
+          }
+        }
+      }
+    `
+    : `
+      query($login: String!, $number: Int!) {
+        user(login: $login) {
+          projectV2(number: $number) {
+            id
+            title
+          }
+        }
+      }
+    `;
+
+  const response = await fetch(GITHUB_GRAPHQL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/vnd.github+json',
+    },
+    body: JSON.stringify({
+      query,
+      variables: { login, number: projectNumber },
     }),
   });
 
