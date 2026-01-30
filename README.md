@@ -10,6 +10,8 @@ Figma Dev Mode annotation 중 **QA 카테고리**만 수동으로 동기화해 G
 1. 이 레포를 Vercel에 연결합니다.
 2. 환경변수 설정:
    - `GITHUB_TOKEN`: Fine-grained PAT (Issues: Read & Write 권한)
+   - `GITHUB_PROJECT_NAME` (선택): GitHub Project v2 이름 (예: `DAYO 2.0`)
+   - `GITHUB_PROJECT_OWNER` (선택): 프로젝트 소유자 (예: `Daily-DAYO`)
    - `QA_SYNC_SECRET` (선택): 플러그인과 서버 간 간단한 공유 시크릿
 3. 배포 후, Vercel 엔드포인트는 `/api/qa-issues`입니다.
 
@@ -26,12 +28,16 @@ Figma Dev Mode annotation 중 **QA 카테고리**만 수동으로 동기화해 G
 5. **Sync QA Annotations** 버튼 클릭
 
 ## 동작 규칙
-- 제목: `Fix {컴포넌트명}`
-- 본문: annotation 텍스트 + Figma 링크
+- 제목: `[QA] Fix ({최상위 프레임명}) {컴포넌트명}`
+- 본문: 템플릿 형식(발견 위치/문제 설명/스펙 포함)
 - 이미 전송된 annotation은 node pluginData로 추적합니다.
 
 ## 사전 조건
 - Dev Mode에서 QA 카테고리를 생성해야 합니다.
+
+## GitHub Projects v2 연동 (선택)
+- `GITHUB_PROJECT_NAME`을 설정하면 생성된 이슈를 해당 프로젝트에 추가합니다.
+- Fine-grained PAT에 **Projects: Read & Write** 권한이 필요합니다.
 
 ## 참고
 TypeScript를 사용하며, `code.ts` → `code.js`로 컴파일됩니다.

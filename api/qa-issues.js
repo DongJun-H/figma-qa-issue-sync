@@ -1,4 +1,5 @@
 const GITHUB_API_BASE = 'https://api.github.com';
+const GITHUB_GRAPHQL = 'https://api.github.com/graphql';
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -35,6 +36,8 @@ module.exports = async (req, res) => {
   }
 
   const { owner, repo, issues } = payload || {};
+  const projectName = payload?.projectName || process.env.GITHUB_PROJECT_NAME;
+  const projectOwner = payload?.projectOwner || process.env.GITHUB_PROJECT_OWNER || owner;
   if (!owner || !repo || !Array.isArray(issues)) {
     return res.status(400).json({ error: 'Invalid payload: owner, repo, issues required' });
   }
@@ -42,6 +45,15 @@ module.exports = async (req, res) => {
   const results = [];
   let created = 0;
   let failed = 0;
+  let projectId = null;
+
+  if (projectName && projectOwner) {
+    try {
+      projectId = await fetchProjectId(token, projectOwner, projectName);
+    } catch (error) {
+      projectId = null;
+    }
+  }
 
   for (const issue of issues) {
     const {
@@ -97,6 +109,7 @@ module.exports = async (req, res) => {
         signature,
         status: response.status,
         url: data?.html_url,
+        projectStatus: await addIssueToProject(token, projectId, data?.node_id),
       });
     } catch (error) {
       failed += 1;
@@ -111,3 +124,87 @@ module.exports = async (req, res) => {
 
   return res.status(200).json({ created, failed, results });
 };
+
+async function addIssueToProject(token, projectId, contentId) {
+  if (!projectId || !contentId) return undefined;
+
+  try {
+    const response = await fetch(GITHUB_GRAPHQL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/vnd.github+json',
+      },
+      body: JSON.stringify({
+        query: `
+          mutation($projectId: ID!, $contentId: ID!) {
+            addProjectV2ItemById(input: { projectId: $projectId, contentId: $contentId }) {
+              item { id }
+            }
+          }
+        `,
+        variables: { projectId, contentId },
+      }),
+    });
+
+    if (!response.ok) return response.status;
+    return response.status;
+  } catch (error) {
+    return 0;
+  }
+}
+
+async function fetchProjectId(token, owner, projectName) {
+  const orgResult = await fetchProjectList(token, 'organization', owner);
+  const orgProject = orgResult?.organization?.projectsV2?.nodes?.find((node) => node.title === projectName);
+  if (orgProject?.id) return orgProject.id;
+
+  const userResult = await fetchProjectList(token, 'user', owner);
+  const userProject = userResult?.user?.projectsV2?.nodes?.find((node) => node.title === projectName);
+  if (userProject?.id) return userProject.id;
+
+  return null;
+}
+
+async function fetchProjectList(token, ownerType, login) {
+  const query = ownerType === 'organization'
+    ? `
+      query($login: String!) {
+        organization(login: $login) {
+          projectsV2(first: 50) {
+            nodes { id title }
+          }
+        }
+      }
+    `
+    : `
+      query($login: String!) {
+        user(login: $login) {
+          projectsV2(first: 50) {
+            nodes { id title }
+          }
+        }
+      }
+    `;
+
+  const response = await fetch(GITHUB_GRAPHQL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/vnd.github+json',
+    },
+    body: JSON.stringify({
+      query,
+      variables: { login },
+    }),
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const data = await response.json();
+  return data?.data;
+}

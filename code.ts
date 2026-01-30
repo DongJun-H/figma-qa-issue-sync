@@ -172,7 +172,14 @@ async function syncQaAnnotations(settings: SyncSettings): Promise<void> {
           const layerName = getTopLevelFrameName(node);
           const title = `[QA] Fix (${layerName}) ${componentName}`;
           const link = buildFigmaLink(fileKey, fileName, node.id);
-          const body = `${annotationText || '(No annotation text)'}\n\nFigma: ${link}`;
+          const body = buildIssueBody({
+            annotationText: annotationText || '(No annotation text)',
+            layerName,
+            figmaLink: link,
+            annotation,
+            node,
+            componentName,
+          });
 
           issues.push({
             title,
@@ -350,6 +357,182 @@ function fetchWithTimeout(
         reject(error);
       });
   });
+}
+
+function buildIssueBody(input: {
+  annotationText: string;
+  layerName: string;
+  figmaLink: string;
+  annotation: Annotation;
+  node: SceneNode;
+  componentName: string;
+}): string {
+  const annotationProps = formatAnnotationProperties(input.node, input.annotation, input.componentName);
+  const componentProps = formatComponentProperties(input.node);
+  const date = formatDate(new Date());
+
+  const annotationLines = annotationProps.length
+    ? annotationProps.map((prop) => `- **${prop.name}**: ${prop.value}`)
+    : ['- 없음'];
+  const componentLines = componentProps.length
+    ? componentProps.map((prop) => `- **${prop.name}**: ${prop.value}`)
+    : ['- 없음'];
+
+  return [
+    '# 🎨 디자인 QA',
+    '',
+    '## 발견 위치',
+    `- **화면**: ${input.layerName}`,
+    `- **Figma 링크**: ${input.figmaLink}`,
+    `- **발견 일시**: ${date}`,
+    '',
+    '## 문제 설명',
+    input.annotationText,
+    '',
+    '## 현재 상태 (스크린샷)',
+    '이미지 미첨부',
+    '',
+    '## 상세 스펙',
+    '### Annotation properties',
+    ...annotationLines,
+    '',
+    '### Component properties',
+    ...componentLines,
+  ].join('\n');
+}
+
+function formatAnnotationProperties(
+  node: SceneNode,
+  annotation: Annotation,
+  componentName: string
+): Array<{ name: string; value: string }> {
+  const properties = annotation.properties ?? [];
+  const lines: Array<{ name: string; value: string }> = [];
+
+  for (const property of properties) {
+    const value = getAnnotationPropertyValue(node, property.type, componentName);
+    if (!value) continue;
+    lines.push({ name: property.type, value });
+  }
+
+  return lines;
+}
+
+function formatComponentProperties(node: SceneNode): Array<{ name: string; value: string }> {
+  const instance = getContainingInstance(node);
+  if (!instance) return [];
+
+  const entries = Object.entries(instance.componentProperties ?? {});
+  if (entries.length === 0) return [];
+
+  const normalized = new Map<string, string>();
+  for (const [rawName, meta] of entries) {
+    const baseName = rawName.split('#')[0];
+    const value = meta?.value;
+    const formatted = formatValue(value);
+    if (!formatted) continue;
+    normalized.set(baseName, formatted);
+  }
+
+  return Array.from(normalized.entries()).map(([name, value]) => ({ name, value }));
+}
+
+function getAnnotationPropertyValue(
+  node: SceneNode,
+  type: AnnotationPropertyType,
+  componentName: string
+): string | null {
+  const anyNode = node as any;
+
+  switch (type) {
+    case 'mainComponent':
+      return componentName;
+    case 'padding': {
+      if (
+        typeof anyNode.paddingTop === 'number' ||
+        typeof anyNode.paddingRight === 'number' ||
+        typeof anyNode.paddingBottom === 'number' ||
+        typeof anyNode.paddingLeft === 'number'
+      ) {
+        const top = formatValue(anyNode.paddingTop);
+        const right = formatValue(anyNode.paddingRight);
+        const bottom = formatValue(anyNode.paddingBottom);
+        const left = formatValue(anyNode.paddingLeft);
+        return `top:${top}, right:${right}, bottom:${bottom}, left:${left}`;
+      }
+      return null;
+    }
+    case 'alignItems': {
+      const primary = anyNode.primaryAxisAlignItems;
+      const counter = anyNode.counterAxisAlignItems;
+      if (primary || counter) {
+        return `primary:${formatValue(primary)}, counter:${formatValue(counter)}`;
+      }
+      return null;
+    }
+    case 'fontFamily': {
+      if (node.type !== 'TEXT') return null;
+      const fontName = node.fontName;
+      if (fontName === figma.mixed) return 'MIXED';
+      if (fontName && typeof fontName === 'object') {
+        return fontName.family;
+      }
+      return null;
+    }
+    case 'fontStyle': {
+      if (node.type !== 'TEXT') return null;
+      const fontName = node.fontName;
+      if (fontName === figma.mixed) return 'MIXED';
+      if (fontName && typeof fontName === 'object') {
+        return fontName.style;
+      }
+      return null;
+    }
+    default: {
+      if (typeof anyNode[type] !== 'undefined') {
+        const formatted = formatValue(anyNode[type]);
+        return formatted || null;
+      }
+      return null;
+    }
+  }
+}
+
+function formatValue(value: any): string {
+  if (value === figma.mixed) return 'MIXED';
+  if (value === undefined || value === null) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number') return Number.isFinite(value) ? value.toString() : String(value);
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (typeof value === 'object') {
+    if ('value' in value && 'unit' in value) {
+      return `${(value as { value: number; unit: string }).value}${(value as { unit: string }).unit}`;
+    }
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
+}
+
+function formatDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getContainingInstance(node: SceneNode): InstanceNode | null {
+  let current: BaseNode | null = node;
+  while (current && current.type !== 'PAGE' && current.type !== 'DOCUMENT') {
+    if (current.type === 'INSTANCE') {
+      return current;
+    }
+    current = current.parent;
+  }
+  return null;
 }
 
 async function getQaCategory(): Promise<AnnotationCategory | null> {
