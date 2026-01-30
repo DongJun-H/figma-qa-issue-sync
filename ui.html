@@ -68,6 +68,9 @@
       font-weight: 600;
       cursor: pointer;
     }
+    button.secondary {
+      background: #64748b;
+    }
     button:disabled {
       background: #9ca3af;
       cursor: not-allowed;
@@ -136,6 +139,10 @@
   </label>
 
   <button id="sync">Sync QA Annotations</button>
+  <div class="row" style="margin-top: 8px;">
+    <button id="view" class="secondary">View Synced</button>
+    <button id="reset" class="secondary">Reset Synced</button>
+  </div>
 
   <div class="status" id="status">대기 중...</div>
 
@@ -150,11 +157,19 @@
     const skipSyncedInput = document.getElementById('skipSynced');
     const statusEl = document.getElementById('status');
     const syncButton = document.getElementById('sync');
+    const viewButton = document.getElementById('view');
+    const resetButton = document.getElementById('reset');
 
     function setStatus(message, isError) {
       statusEl.textContent = message;
       statusEl.style.background = isError ? '#fee2e2' : '#e2e8f0';
       statusEl.style.color = isError ? '#b91c1c' : '#0f172a';
+    }
+
+    function setBusy(isBusy) {
+      syncButton.disabled = isBusy;
+      viewButton.disabled = isBusy;
+      resetButton.disabled = isBusy;
     }
 
     function readSettings() {
@@ -171,9 +186,22 @@
     }
 
     syncButton.onclick = () => {
-      syncButton.disabled = true;
+      setBusy(true);
       setStatus('전송 요청 중...', false);
       parent.postMessage({ pluginMessage: { type: 'sync-qa', settings: readSettings() } }, '*');
+    };
+
+    viewButton.onclick = () => {
+      setBusy(true);
+      setStatus('전송 기록 확인 중...', false);
+      parent.postMessage({ pluginMessage: { type: 'view-synced', settings: readSettings() } }, '*');
+    };
+
+    resetButton.onclick = () => {
+      if (!confirm('전송 기록을 초기화할까요?')) return;
+      setBusy(true);
+      setStatus('전송 기록 초기화 중...', false);
+      parent.postMessage({ pluginMessage: { type: 'reset-synced', settings: readSettings() } }, '*');
     };
 
     window.onmessage = (event) => {
@@ -193,17 +221,18 @@
       }
 
       if (msg.type === 'progress') {
+        setBusy(true);
         setStatus(msg.message, false);
       }
 
       if (msg.type === 'done' || msg.type === 'empty') {
         setStatus(msg.message, false);
-        syncButton.disabled = false;
+        setBusy(false);
       }
 
       if (msg.type === 'error') {
         setStatus(msg.message, true);
-        syncButton.disabled = false;
+        setBusy(false);
       }
     };
 

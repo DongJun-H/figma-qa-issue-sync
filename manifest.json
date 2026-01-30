@@ -13,7 +13,7 @@
   "ui": "ui.html",
   "networkAccess": {
     "allowedDomains": [
-      "*"
+      "https://figma-qa-issue-sync.vercel.app"
     ],
     "reasoning": "User-configured Vercel endpoint to create GitHub issues from QA annotations."
   }
