@@ -169,7 +169,8 @@ async function syncQaAnnotations(settings: SyncSettings): Promise<void> {
           }
 
           const componentName = await getComponentName(node);
-          const title = `Fix ${componentName}`;
+          const layerName = getTopLevelFrameName(node);
+          const title = `[QA] Fix (${layerName}) ${componentName}`;
           const link = buildFigmaLink(fileKey, fileName, node.id);
           const body = `${annotationText || '(No annotation text)'}\n\nFigma: ${link}`;
 
@@ -379,22 +380,49 @@ function extractFileKey(input: string): string | null {
 async function getComponentName(node: SceneNode): Promise<string> {
   if (node.type === 'INSTANCE') {
     const mainComponent = await node.getMainComponentAsync();
-    return mainComponent?.name ?? node.name;
+    if (mainComponent) {
+      if (mainComponent.parent && mainComponent.parent.type === 'COMPONENT_SET') {
+        return mainComponent.parent.name;
+      }
+      return mainComponent.name;
+    }
   }
 
   let current: BaseNode | null = node;
   while (current && current.type !== 'PAGE' && current.type !== 'DOCUMENT') {
     if (current.type === 'INSTANCE') {
       const mainComponent = await current.getMainComponentAsync();
-      return mainComponent?.name ?? current.name;
+      if (mainComponent) {
+        if (mainComponent.parent && mainComponent.parent.type === 'COMPONENT_SET') {
+          return mainComponent.parent.name;
+        }
+        return mainComponent.name;
+      }
     }
-    if (current.type === 'COMPONENT' || current.type === 'COMPONENT_SET') {
+    if (current.type === 'COMPONENT_SET' || current.type === 'COMPONENT') {
       return current.name;
     }
     current = current.parent;
   }
 
   return node.name;
+}
+
+function getTopLevelFrameName(node: SceneNode): string {
+  let current: BaseNode | null = node;
+
+  while (current && current.type !== 'PAGE' && current.type !== 'DOCUMENT') {
+    if (
+      current.type === 'FRAME' &&
+      current.parent &&
+      (current.parent.type === 'PAGE' || current.parent.type === 'SECTION')
+    ) {
+      return current.name;
+    }
+    current = current.parent;
+  }
+
+  return node.parent?.name ?? node.name;
 }
 
 function isSignatureSynced(node: BaseNode & PluginDataMixin, signature: string): boolean {
