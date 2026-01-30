@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: "IBM Plex Sans", "Noto Sans KR", system-ui, sans-serif;
+      font-size: 13px;
+      color: #1f2937;
+    }
+    body {
+      margin: 0;
+      padding: 16px;
+      background: #f8fafc;
+    }
+    h1 {
+      font-size: 16px;
+      margin: 0 0 8px 0;
+    }
+    p {
+      margin: 0 0 12px 0;
+      color: #64748b;
+      font-size: 12px;
+    }
+    .field {
+      margin-bottom: 12px;
+    }
+    label {
+      display: block;
+      font-size: 12px;
+      margin-bottom: 4px;
+      color: #374151;
+    }
+    input[type="text"] {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 8px 10px;
+      border: 1px solid #cbd5f5;
+      border-radius: 8px;
+      background: #fff;
+      font-size: 12px;
+    }
+    .row {
+      display: flex;
+      gap: 8px;
+    }
+    .row > .field {
+      flex: 1;
+      margin-bottom: 0;
+    }
+    .checkbox {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: #475569;
+      margin-bottom: 8px;
+    }
+    button {
+      width: 100%;
+      padding: 10px 12px;
+      border: 0;
+      border-radius: 10px;
+      background: #2563eb;
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:disabled {
+      background: #9ca3af;
+      cursor: not-allowed;
+    }
+    .status {
+      margin-top: 12px;
+      font-size: 12px;
+      color: #0f172a;
+      background: #e2e8f0;
+      padding: 8px 10px;
+      border-radius: 8px;
+      min-height: 36px;
+    }
+    .hint {
+      font-size: 11px;
+      color: #94a3b8;
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h1>QA Annotation Sync</h1>
+  <p>QA 카테고리 annotation을 GitHub Issues로 전송합니다.</p>
+
+  <div class="field">
+    <label for="endpoint">Vercel Endpoint URL</label>
+    <input id="endpoint" type="text" placeholder="https://your-app.vercel.app/api/qa-issues" />
+  </div>
+
+  <div class="row">
+    <div class="field">
+      <label for="owner">GitHub Owner</label>
+      <input id="owner" type="text" placeholder="owner" />
+    </div>
+    <div class="field">
+      <label for="repo">GitHub Repo</label>
+      <input id="repo" type="text" placeholder="repo" />
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="field">
+      <label for="label">Issue Label</label>
+      <input id="label" type="text" placeholder="QA" />
+    </div>
+    <div class="field">
+      <label for="secret">Sync Secret (옵션)</label>
+      <input id="secret" type="text" placeholder="optional" />
+    </div>
+  </div>
+
+  <div class="field">
+    <label for="fileKey">Figma File URL/Key (필요시)</label>
+    <input id="fileKey" type="text" placeholder="https://www.figma.com/file/FILEKEY/..." />
+    <div class="hint">Private plugin이 아니면 fileKey를 입력해야 링크를 만들 수 있습니다.</div>
+  </div>
+
+  <label class="checkbox">
+    <input id="scanAllPages" type="checkbox" />
+    모든 페이지 스캔
+  </label>
+
+  <label class="checkbox">
+    <input id="skipSynced" type="checkbox" checked />
+    이미 전송된 annotation 건너뛰기
+  </label>
+
+  <button id="sync">Sync QA Annotations</button>
+
+  <div class="status" id="status">대기 중...</div>
+
+  <script>
+    const endpointInput = document.getElementById('endpoint');
+    const ownerInput = document.getElementById('owner');
+    const repoInput = document.getElementById('repo');
+    const labelInput = document.getElementById('label');
+    const secretInput = document.getElementById('secret');
+    const fileKeyInput = document.getElementById('fileKey');
+    const scanAllPagesInput = document.getElementById('scanAllPages');
+    const skipSyncedInput = document.getElementById('skipSynced');
+    const statusEl = document.getElementById('status');
+    const syncButton = document.getElementById('sync');
+
+    function setStatus(message, isError) {
+      statusEl.textContent = message;
+      statusEl.style.background = isError ? '#fee2e2' : '#e2e8f0';
+      statusEl.style.color = isError ? '#b91c1c' : '#0f172a';
+    }
+
+    function readSettings() {
+      return {
+        endpoint: endpointInput.value,
+        owner: ownerInput.value,
+        repo: repoInput.value,
+        label: labelInput.value,
+        secret: secretInput.value,
+        fileKeyInput: fileKeyInput.value,
+        scanAllPages: scanAllPagesInput.checked,
+        skipSynced: skipSyncedInput.checked
+      };
+    }
+
+    syncButton.onclick = () => {
+      syncButton.disabled = true;
+      setStatus('전송 요청 중...', false);
+      parent.postMessage({ pluginMessage: { type: 'sync-qa', settings: readSettings() } }, '*');
+    };
+
+    window.onmessage = (event) => {
+      const msg = event.data.pluginMessage;
+      if (!msg) return;
+
+      if (msg.type === 'settings') {
+        const settings = msg.settings || {};
+        endpointInput.value = settings.endpoint || '';
+        ownerInput.value = settings.owner || '';
+        repoInput.value = settings.repo || '';
+        labelInput.value = settings.label || 'QA';
+        secretInput.value = settings.secret || '';
+        fileKeyInput.value = settings.fileKeyInput || '';
+        scanAllPagesInput.checked = Boolean(settings.scanAllPages);
+        skipSyncedInput.checked = settings.skipSynced !== false;
+      }
+
+      if (msg.type === 'progress') {
+        setStatus(msg.message, false);
+      }
+
+      if (msg.type === 'done' || msg.type === 'empty') {
+        setStatus(msg.message, false);
+        syncButton.disabled = false;
+      }
+
+      if (msg.type === 'error') {
+        setStatus(msg.message, true);
+        syncButton.disabled = false;
+      }
+    };
+
+    parent.postMessage({ pluginMessage: { type: 'get-settings' } }, '*');
+  </script>
+</body>
+</html>

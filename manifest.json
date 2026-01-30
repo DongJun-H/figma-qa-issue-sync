@@ -1,0 +1,20 @@
+{
+  "name": "Create QA Issue",
+  "id": "1599012269775805424",
+  "api": "1.0.0",
+  "main": "code.js",
+  "capabilities": [],
+  "enableProposedApi": false,
+  "enablePrivatePluginApi": true,
+  "documentAccess": "dynamic-page",
+  "editorType": [
+    "figma"
+  ],
+  "ui": "ui.html",
+  "networkAccess": {
+    "allowedDomains": [
+      "*"
+    ],
+    "reasoning": "User-configured Vercel endpoint to create GitHub issues from QA annotations."
+  }
+}
