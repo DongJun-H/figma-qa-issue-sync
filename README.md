@@ -1,44 +1,92 @@
 # QA Annotation → GitHub Issues Sync
 
-Figma Dev Mode annotation 중 **QA 카테고리**만 수동으로 동기화해 GitHub Issue를 생성합니다.
+Figma Dev Mode annotation 중 **QA 카테고리**를 GitHub Issue로 자동 생성하는 플러그인입니다.
+
+## 주요 기능
+- QA annotation을 GitHub Issues로 자동 변환
+- **GitHub OAuth 로그인**: 사용자 본인 계정으로 이슈 생성
+- GitHub Projects v2 연동 지원
 
 ## 구성
-- Figma 플러그인: Annotation을 읽어 이슈 요청을 Vercel API로 전송
-- Vercel 서버리스: GitHub Issues API 호출
+```
+┌─────────────────┐      ┌─────────────────┐      ┌─────────────┐
+│  Figma 플러그인  │ ───► │   Vercel 서버    │ ───► │   GitHub    │
+│  (ui.html,      │      │   (API + KV)    │      │  (Issues)   │
+│   code.ts)      │      └─────────────────┘      └─────────────┘
+└─────────────────┘
+```
 
-## Vercel 설정
-1. 이 레포를 Vercel에 연결합니다.
-2. 환경변수 설정:
-   - `GITHUB_TOKEN`: Fine-grained PAT (Issues: Read & Write 권한)
-   - `GITHUB_PROJECT_NAME` (선택): GitHub Project v2 이름 (예: `DAYO 2.0`)
-   - `GITHUB_PROJECT_OWNER` (선택): 프로젝트 소유자 (예: `Daily-DAYO`)
-   - `GITHUB_PROJECT_NUMBER` (선택): 프로젝트 번호 (예: `5`) — 설정 시 이름보다 우선
-   - `QA_SYNC_SECRET` (선택): 플러그인과 서버 간 간단한 공유 시크릿
-3. 배포 후, Vercel 엔드포인트는 `/api/qa-issues`입니다.
+## 설정 방법
 
-## 플러그인 사용법
-1. `npm install`
-2. `npm run build` 또는 `npm run watch`
-3. Figma 데스크탑 앱에서 플러그인 등록
-4. 플러그인 UI에 아래 값 입력
-   - Vercel Endpoint URL
-   - GitHub owner / repo
-   - Label (기본 QA)
-   - Secret (설정한 경우)
-   - File URL/Key (Private 플러그인이 아니면 필요)
-5. **Sync QA Annotations** 버튼 클릭
+### 1. Vercel 배포
+1. 이 레포를 Fork 후 Vercel에 연결
+2. Vercel Storage에서 KV (Upstash Redis) 생성 및 프로젝트에 연결
 
-## 동작 규칙
-- 제목: `[QA] Fix ({최상위 프레임명}) {컴포넌트명}`
-- 본문: 템플릿 형식(발견 위치/문제 설명/스펙 포함)
-- 이미 전송된 annotation은 node pluginData로 추적합니다.
+### 2. GitHub OAuth App 생성
+1. GitHub → Settings → Developer settings → OAuth Apps → New OAuth App
+2. 설정값:
+   - **Application name**: `QA Issue Sync`
+   - **Homepage URL**: `https://your-app.vercel.app`
+   - **Authorization callback URL**: `https://your-app.vercel.app/api/auth/callback`
+3. Client ID, Client Secret 복사
+
+### 3. 환경변수 설정 (Vercel Dashboard)
+
+| 변수명 | 필수 | 설명 |
+|--------|------|------|
+| `GITHUB_CLIENT_ID` | O | GitHub OAuth App Client ID |
+| `GITHUB_CLIENT_SECRET` | O | GitHub OAuth App Client Secret |
+| `OAUTH_CALLBACK_URL` | O | `https://your-app.vercel.app/api/auth/callback` |
+| `KV_REST_API_URL` | O | Vercel KV 연결 시 자동 생성 |
+| `KV_REST_API_TOKEN` | O | Vercel KV 연결 시 자동 생성 |
+| `GITHUB_TOKEN` | - | 폴백용 서버 토큰 (로그인 안 한 경우) |
+| `GITHUB_PROJECT_NUMBER` | - | GitHub Project v2 번호 |
+| `GITHUB_PROJECT_OWNER` | - | 프로젝트 소유자 |
+| `QA_SYNC_SECRET` | - | API 접근 제한용 시크릿 |
+
+### 4. 플러그인 빌드
+```bash
+npm install
+npm run build
+```
+
+### 5. Figma에 플러그인 등록
+1. Figma 데스크탑 앱 → Plugins → Development → Import plugin from manifest
+2. `manifest.json` 선택
+
+## 사용법
+
+### 로그인
+1. 플러그인 상단의 "로그인" 버튼 클릭
+2. 브라우저에서 GitHub 인증 완료
+3. 플러그인에 `@username` 표시 확인
+
+### QA 이슈 생성
+1. Endpoint URL, Owner, Repo 입력
+2. **Sync QA Annotations** 클릭
+3. GitHub에서 생성된 이슈 확인 (로그인한 계정으로 생성됨)
+
+## 이슈 형식
+- **제목**: `[QA] Fix {컴포넌트명} in {화면명}`
+- **본문**: 발견 위치, 문제 설명, 상세 스펙 포함
+- **라벨**: 설정한 라벨 (기본: `QA`)
 
 ## 사전 조건
-- Dev Mode에서 QA 카테고리를 생성해야 합니다.
+- Figma Dev Mode에서 **QA 카테고리** 생성 필요
 
-## GitHub Projects v2 연동 (선택)
-- `GITHUB_PROJECT_NAME`을 설정하면 생성된 이슈를 해당 프로젝트에 추가합니다.
-- Fine-grained PAT에 **Projects: Read & Write** 권한이 필요합니다.
+## 문서
+- [OAuth 인증 시스템 상세 문서](docs/OAUTH_ARCHITECTURE.md)
 
-## 참고
-TypeScript를 사용하며, `code.ts` → `code.js`로 컴파일됩니다.
+## 파일 구조
+```
+├── api/
+│   ├── auth/           # OAuth 인증 API
+│   │   ├── login.js
+│   │   ├── callback.js
+│   │   ├── status.js
+│   │   └── logout.js
+│   └── qa-issues.js    # 이슈 생성 API
+├── code.ts             # 플러그인 로직
+├── ui.html             # 플러그인 UI
+└── manifest.json       # 플러그인 설정
+```
