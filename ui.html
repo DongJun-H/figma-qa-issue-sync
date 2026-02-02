@@ -261,6 +261,7 @@
 
     // Auth handlers
     loginBtn.onclick = () => {
+      setStatus('로그인 시작...', false);
       parent.postMessage({ pluginMessage: { type: 'start-login', settings: readSettings() } }, '*');
     };
 
@@ -362,14 +363,16 @@
 
       if (msg.type === 'open-auth') {
         const endpoint = msg.endpoint;
+        setStatus('인증 서버 연결 중: ' + endpoint, false);
         fetch(endpoint + '/api/auth/login')
           .then(res => res.json())
           .then(data => {
             if (data.authUrl && data.state) {
+              setStatus('브라우저에서 GitHub 인증을 완료해주세요.', false);
               parent.postMessage({ pluginMessage: { type: 'open-external', url: data.authUrl } }, '*');
               startPolling(endpoint, data.state);
             } else {
-              setStatus('로그인 URL을 가져올 수 없습니다.', true);
+              setStatus('로그인 URL을 가져올 수 없습니다: ' + JSON.stringify(data), true);
             }
           })
           .catch(err => {
