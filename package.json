@@ -11,6 +11,9 @@
   },
   "author": "",
   "license": "",
+  "dependencies": {
+    "@vercel/kv": "^3.0.0"
+  },
   "devDependencies": {
     "@figma/eslint-plugin-figma-plugins": "*",
     "@figma/plugin-typings": "*",

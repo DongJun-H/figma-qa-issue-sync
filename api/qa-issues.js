@@ -1,9 +1,11 @@
+const { kv } = require('@vercel/kv');
+
 const GITHUB_API_BASE = 'https://api.github.com';
 const GITHUB_GRAPHQL = 'https://api.github.com/graphql';
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-QA-Secret');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-QA-Secret, X-QA-Session');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
 
   if (req.method === 'OPTIONS') {
@@ -23,9 +25,10 @@ module.exports = async (req, res) => {
     }
   }
 
-  const token = process.env.GITHUB_TOKEN;
+  // Get token from session or fallback to env
+  const { token, user } = await getGitHubToken(req);
   if (!token) {
-    return res.status(500).json({ error: 'Missing GITHUB_TOKEN' });
+    return res.status(500).json({ error: 'Missing GITHUB_TOKEN or not authenticated' });
   }
 
   let payload;
@@ -283,4 +286,20 @@ async function fetchProjectByNumber(token, ownerType, login, projectNumber) {
     console.error('Project number lookup error', data.errors);
   }
   return data?.data;
+}
+
+async function getGitHubToken(req) {
+  const sessionId = req.headers['x-qa-session'];
+  if (sessionId) {
+    try {
+      const session = await kv.get(`oauth:session:${sessionId}`);
+      if (session?.accessToken) {
+        return { token: session.accessToken, user: session.login };
+      }
+    } catch (error) {
+      console.error('Session lookup error:', error);
+    }
+  }
+  // Fallback to server token
+  return { token: process.env.GITHUB_TOKEN, user: null };
 }

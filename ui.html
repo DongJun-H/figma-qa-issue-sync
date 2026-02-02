@@ -89,11 +89,55 @@
       color: #94a3b8;
       margin-top: 4px;
     }
+    .auth-section {
+      margin-bottom: 16px;
+      padding: 12px;
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+    }
+    .auth-logged-out, .auth-logged-in, .auth-polling {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .auth-user {
+      font-size: 12px;
+      color: #16a34a;
+      font-weight: 500;
+    }
+    .auth-hint {
+      font-size: 12px;
+      color: #64748b;
+    }
+    .auth-polling-text {
+      font-size: 12px;
+      color: #d97706;
+    }
+    button.small {
+      width: auto;
+      padding: 6px 12px;
+      font-size: 12px;
+    }
   </style>
 </head>
 <body>
   <h1>QA Annotation Sync</h1>
   <p>QA 카테고리 annotation을 GitHub Issues로 전송합니다.</p>
+
+  <div class="auth-section" id="auth-section">
+    <div class="auth-logged-out" id="auth-logged-out">
+      <span class="auth-hint">GitHub에 로그인하지 않음</span>
+      <button id="login-btn" class="secondary small">로그인</button>
+    </div>
+    <div class="auth-logged-in" id="auth-logged-in" style="display: none;">
+      <span class="auth-user" id="auth-user">@username</span>
+      <button id="logout-btn" class="secondary small">로그아웃</button>
+    </div>
+    <div class="auth-polling" id="auth-polling" style="display: none;">
+      <span class="auth-polling-text">GitHub 인증 대기 중...</span>
+    </div>
+  </div>
 
   <div class="field">
     <label for="endpoint">Vercel Endpoint URL</label>
@@ -160,6 +204,17 @@
     const viewButton = document.getElementById('view');
     const resetButton = document.getElementById('reset');
 
+    // Auth elements
+    const authLoggedOut = document.getElementById('auth-logged-out');
+    const authLoggedIn = document.getElementById('auth-logged-in');
+    const authPolling = document.getElementById('auth-polling');
+    const authUser = document.getElementById('auth-user');
+    const loginBtn = document.getElementById('login-btn');
+    const logoutBtn = document.getElementById('logout-btn');
+
+    let currentSessionId = null;
+    let pollingInterval = null;
+
     function setStatus(message, isError) {
       statusEl.textContent = message;
       statusEl.style.background = isError ? '#fee2e2' : '#e2e8f0';
@@ -204,6 +259,83 @@
       parent.postMessage({ pluginMessage: { type: 'reset-synced', settings: readSettings() } }, '*');
     };
 
+    // Auth handlers
+    loginBtn.onclick = () => {
+      parent.postMessage({ pluginMessage: { type: 'start-login', settings: readSettings() } }, '*');
+    };
+
+    logoutBtn.onclick = () => {
+      parent.postMessage({ pluginMessage: { type: 'logout', settings: readSettings() } }, '*');
+    };
+
+    function showAuthState(state, user) {
+      authLoggedOut.style.display = state === 'logged-out' ? 'flex' : 'none';
+      authLoggedIn.style.display = state === 'logged-in' ? 'flex' : 'none';
+      authPolling.style.display = state === 'polling' ? 'flex' : 'none';
+      if (user) {
+        authUser.textContent = '@' + user;
+      }
+    }
+
+    function startPolling(endpoint, state) {
+      showAuthState('polling');
+      if (pollingInterval) clearInterval(pollingInterval);
+
+      pollingInterval = setInterval(async () => {
+        try {
+          const res = await fetch(endpoint + '/api/auth/status?state=' + state);
+          const data = await res.json();
+          if (data.authenticated && data.sessionId) {
+            clearInterval(pollingInterval);
+            pollingInterval = null;
+            currentSessionId = data.sessionId;
+            parent.postMessage({ pluginMessage: { type: 'save-session', sessionId: data.sessionId } }, '*');
+            showAuthState('logged-in', data.user?.login);
+            setStatus('GitHub 로그인 완료!', false);
+          }
+        } catch (err) {
+          console.error('Polling error:', err);
+        }
+      }, 3000);
+
+      // Stop polling after 5 minutes
+      setTimeout(() => {
+        if (pollingInterval) {
+          clearInterval(pollingInterval);
+          pollingInterval = null;
+          showAuthState('logged-out');
+          setStatus('로그인 시간 초과. 다시 시도해주세요.', true);
+        }
+      }, 300000);
+    }
+
+    async function checkAuthStatus(sessionId) {
+      if (!sessionId) {
+        showAuthState('logged-out');
+        return;
+      }
+      const endpoint = endpointInput.value.replace(/\/api\/qa-issues\/?$/, '');
+      if (!endpoint) {
+        showAuthState('logged-out');
+        return;
+      }
+      try {
+        const res = await fetch(endpoint + '/api/auth/status', {
+          headers: { 'X-QA-Session': sessionId }
+        });
+        const data = await res.json();
+        if (data.authenticated) {
+          currentSessionId = sessionId;
+          showAuthState('logged-in', data.user?.login);
+        } else {
+          showAuthState('logged-out');
+        }
+      } catch (err) {
+        console.error('Auth check error:', err);
+        showAuthState('logged-out');
+      }
+    }
+
     window.onmessage = (event) => {
       const msg = event.data.pluginMessage;
       if (!msg) return;
@@ -218,6 +350,48 @@
         fileKeyInput.value = settings.fileKeyInput || '';
         scanAllPagesInput.checked = Boolean(settings.scanAllPages);
         skipSyncedInput.checked = settings.skipSynced !== false;
+        // Check auth status with saved session
+        if (msg.sessionId) {
+          checkAuthStatus(msg.sessionId);
+        }
+      }
+
+      if (msg.type === 'auth-status-check') {
+        checkAuthStatus(msg.sessionId);
+      }
+
+      if (msg.type === 'open-auth') {
+        const endpoint = msg.endpoint;
+        fetch(endpoint + '/api/auth/login')
+          .then(res => res.json())
+          .then(data => {
+            if (data.authUrl && data.state) {
+              parent.postMessage({ pluginMessage: { type: 'open-external', url: data.authUrl } }, '*');
+              startPolling(endpoint, data.state);
+            } else {
+              setStatus('로그인 URL을 가져올 수 없습니다.', true);
+            }
+          })
+          .catch(err => {
+            setStatus('로그인 요청 실패: ' + err.message, true);
+          });
+      }
+
+      if (msg.type === 'auth-saved') {
+        // Session saved, auth complete
+      }
+
+      if (msg.type === 'do-logout') {
+        const { endpoint, sessionId } = msg;
+        if (endpoint && sessionId) {
+          fetch(endpoint + '/api/auth/logout', {
+            method: 'POST',
+            headers: { 'X-QA-Session': sessionId }
+          }).catch(() => {});
+        }
+        currentSessionId = null;
+        showAuthState('logged-out');
+        setStatus('로그아웃 완료', false);
       }
 
       if (msg.type === 'progress') {

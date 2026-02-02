@@ -26,6 +26,7 @@ type IssueResultItem = {
 };
 
 const STORAGE_KEY = 'qa-sync-settings';
+const SESSION_KEY = 'qa-github-session';
 const PLUGIN_DATA_KEY = 'qaIssueSynced';
 
 const DEFAULT_SETTINGS: SyncSettings = {
@@ -44,7 +45,50 @@ figma.showUI(__html__, { width: 360, height: 520 });
 figma.ui.onmessage = async (msg) => {
   if (msg.type === 'get-settings') {
     const settings = await loadSettings();
-    figma.ui.postMessage({ type: 'settings', settings });
+    const sessionId = await figma.clientStorage.getAsync(SESSION_KEY);
+    figma.ui.postMessage({ type: 'settings', settings, sessionId });
+    return;
+  }
+
+  if (msg.type === 'check-auth') {
+    const sessionId = await figma.clientStorage.getAsync(SESSION_KEY);
+    if (!sessionId) {
+      figma.ui.postMessage({ type: 'auth-status', authenticated: false });
+      return;
+    }
+    // UI will handle the actual API call
+    figma.ui.postMessage({ type: 'auth-status-check', sessionId });
+    return;
+  }
+
+  if (msg.type === 'start-login') {
+    const settings = normalizeSettings(msg.settings as Partial<SyncSettings>);
+    const endpoint = settings.endpoint.replace(/\/api\/qa-issues\/?$/, '');
+    if (!endpoint) {
+      figma.ui.postMessage({ type: 'error', message: 'Endpoint URL을 먼저 설정해주세요.' });
+      return;
+    }
+    figma.ui.postMessage({ type: 'open-auth', endpoint });
+    return;
+  }
+
+  if (msg.type === 'open-external') {
+    figma.openExternal(msg.url);
+    return;
+  }
+
+  if (msg.type === 'save-session') {
+    await figma.clientStorage.setAsync(SESSION_KEY, msg.sessionId);
+    figma.ui.postMessage({ type: 'auth-saved' });
+    return;
+  }
+
+  if (msg.type === 'logout') {
+    const sessionId = await figma.clientStorage.getAsync(SESSION_KEY);
+    const settings = normalizeSettings(msg.settings as Partial<SyncSettings>);
+    const endpoint = settings.endpoint.replace(/\/api\/qa-issues\/?$/, '');
+    await figma.clientStorage.deleteAsync(SESSION_KEY);
+    figma.ui.postMessage({ type: 'do-logout', endpoint, sessionId });
     return;
   }
 
@@ -203,10 +247,12 @@ async function syncQaAnnotations(settings: SyncSettings): Promise<void> {
       message: `수집 완료: ${issues.length}건. 서버 전송 중...`,
     });
 
+    const sessionId = await figma.clientStorage.getAsync(SESSION_KEY);
     const response = await fetchWithTimeout(settings.endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...(sessionId ? { 'X-QA-Session': sessionId } : {}),
         ...(settings.secret ? { 'X-QA-Secret': settings.secret } : {}),
       },
       body: JSON.stringify({
