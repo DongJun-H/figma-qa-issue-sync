@@ -148,6 +148,14 @@ async function syncQaAnnotations(settings: SyncSettings): Promise<void> {
       figma.ui.postMessage({ type: 'error', message: 'Vercel endpoint URL을 입력해주세요.' });
       return;
     }
+    // Enforce HTTPS for security
+    if (!settings.endpoint.startsWith('https://')) {
+      figma.ui.postMessage({
+        type: 'error',
+        message: '보안을 위해 HTTPS URL만 허용됩니다.'
+      });
+      return;
+    }
     if (!settings.owner || !settings.repo) {
       figma.ui.postMessage({ type: 'error', message: 'GitHub owner/repo를 입력해주세요.' });
       return;
@@ -422,6 +430,11 @@ function buildIssueBody(input: {
     ? componentProps.reduce<string[]>((acc, prop) => acc.concat(formatPropertyLines(prop)), [])
     : ['- 없음'];
 
+  // Sanitize annotation text to prevent XSS in GitHub Markdown
+  const safeAnnotationText = input.annotationText
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
   return [
     '# 🎨 디자인 QA',
     '',
@@ -430,7 +443,7 @@ function buildIssueBody(input: {
     `- **Figma 링크**: ${input.figmaLink}`,
     '',
     '## 문제 설명',
-    input.annotationText,
+    safeAnnotationText,
     '',
     '### Annotation에 함께 등록된 properties',
     ...annotationLines,

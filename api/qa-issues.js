@@ -1,12 +1,12 @@
 const { kv } = require('@vercel/kv');
+const { setCorsHeaders, validateOwnerRepo, validateIssue } = require('../lib/security');
+const { decrypt, isEncrypted } = require('../lib/crypto');
 
 const GITHUB_API_BASE = 'https://api.github.com';
 const GITHUB_GRAPHQL = 'https://api.github.com/graphql';
 
 module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-QA-Secret, X-QA-Session');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  setCorsHeaders(req, res);
 
   if (req.method === 'OPTIONS') {
     return res.status(204).end();
@@ -45,6 +45,11 @@ module.exports = async (req, res) => {
   const projectNumber = projectNumberRaw ? Number(projectNumberRaw) : null;
   if (!owner || !repo || !Array.isArray(issues)) {
     return res.status(400).json({ error: 'Invalid payload: owner, repo, issues required' });
+  }
+
+  // Validate owner/repo format
+  if (!validateOwnerRepo(owner, repo)) {
+    return res.status(400).json({ error: 'Invalid owner or repo format' });
   }
 
   const results = [];
@@ -86,6 +91,18 @@ module.exports = async (req, res) => {
       continue;
     }
 
+    // Validate issue format and length
+    if (!validateIssue(issue)) {
+      failed += 1;
+      results.push({
+        nodeId,
+        signature,
+        status: 400,
+        error: 'Invalid issue format',
+      });
+      continue;
+    }
+
     try {
       const response = await fetch(`${GITHUB_API_BASE}/repos/${owner}/${repo}/issues`, {
         method: 'POST',
@@ -105,11 +122,13 @@ module.exports = async (req, res) => {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         failed += 1;
+        // Log detailed error but return generic message
+        console.error('GitHub API error:', data?.message || response.statusText);
         results.push({
           nodeId,
           signature,
           status: response.status,
-          error: data?.message || response.statusText,
+          error: 'Failed to create issue',
         });
         continue;
       }
@@ -294,7 +313,11 @@ async function getGitHubToken(req) {
     try {
       const session = await kv.get(`oauth:session:${sessionId}`);
       if (session?.accessToken) {
-        return { token: session.accessToken, user: session.login };
+        // Decrypt token if encrypted
+        const token = isEncrypted(session.accessToken)
+          ? decrypt(session.accessToken)
+          : session.accessToken;
+        return { token, user: session.login };
       }
     } catch (error) {
       console.error('Session lookup error:', error);

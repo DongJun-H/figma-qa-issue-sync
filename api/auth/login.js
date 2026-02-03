@@ -1,10 +1,9 @@
 const { kv } = require('@vercel/kv');
 const crypto = require('crypto');
+const { setCorsHeaders, createFingerprint } = require('../../lib/security');
 
 module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  setCorsHeaders(req, res);
 
   if (req.method === 'OPTIONS') {
     return res.status(204).end();
@@ -22,13 +21,17 @@ module.exports = async (req, res) => {
     return res.status(500).json({ error: 'OAuth not configured' });
   }
 
-  const state = crypto.randomUUID();
+  // Create state with fingerprint for enhanced CSRF protection
+  const stateData = {
+    id: crypto.randomUUID(),
+    createdAt: Date.now(),
+    status: 'pending',
+    fingerprint: createFingerprint(req.headers['user-agent'])
+  };
 
   // Store state in KV with 10 minute TTL
-  await kv.set(`oauth:state:${state}`, {
-    createdAt: Date.now(),
-    status: 'pending'
-  }, { ex: 600 });
+  await kv.set(`oauth:state:${stateData.id}`, stateData, { ex: 600 });
+  const state = stateData.id;
 
   const params = new URLSearchParams({
     client_id: clientId,

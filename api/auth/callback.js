@@ -1,5 +1,7 @@
 const { kv } = require('@vercel/kv');
 const crypto = require('crypto');
+const { encrypt } = require('../../lib/crypto');
+const { verifyFingerprint } = require('../../lib/security');
 
 module.exports = async (req, res) => {
   const { code, state, error } = req.query;
@@ -19,6 +21,11 @@ module.exports = async (req, res) => {
     return sendErrorPage(res, '로그인 세션이 만료되었습니다. 다시 시도해주세요.');
   }
 
+  // Verify fingerprint for CSRF protection
+  if (stateData.fingerprint && !verifyFingerprint(stateData.fingerprint, req.headers['user-agent'])) {
+    return sendErrorPage(res, '요청 출처를 확인할 수 없습니다.');
+  }
+
   // Exchange code for access token
   const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
     method: 'POST',
@@ -35,7 +42,8 @@ module.exports = async (req, res) => {
 
   const tokenData = await tokenRes.json();
   if (tokenData.error) {
-    return sendErrorPage(res, '토큰 교환에 실패했습니다: ' + (tokenData.error_description || tokenData.error));
+    console.error('Token exchange failed:', tokenData.error_description || tokenData.error);
+    return sendErrorPage(res, '인증에 실패했습니다. 다시 시도해주세요.');
   }
 
   // Fetch user info
@@ -53,15 +61,15 @@ module.exports = async (req, res) => {
 
   const userData = await userRes.json();
 
-  // Create session
+  // Create session with encrypted token
   const sessionId = crypto.randomUUID();
   await kv.set(`oauth:session:${sessionId}`, {
-    accessToken: tokenData.access_token,
+    accessToken: encrypt(tokenData.access_token),
     userId: userData.id,
     login: userData.login,
     avatarUrl: userData.avatar_url,
     createdAt: Date.now()
-  }, { ex: 60 * 60 * 24 * 7 }); // 7 days TTL
+  }, { ex: 60 * 60 * 24 }); // 24 hours TTL (shortened from 7 days)
 
   // Update state to completed
   await kv.set(`oauth:state:${state}`, {
