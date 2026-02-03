@@ -36,8 +36,7 @@ module.exports = async (req, res) => {
 
   const tokenData = await tokenRes.json();
   if (tokenData.error) {
-    console.error('Token exchange failed:', tokenData.error_description || tokenData.error);
-    return sendErrorPage(res, '인증에 실패했습니다. 다시 시도해주세요.');
+    return sendErrorPage(res, `토큰 교환 실패: ${tokenData.error_description || tokenData.error}`);
   }
 
   // Fetch user info

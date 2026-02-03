@@ -49,7 +49,10 @@ module.exports = async (req, res) => {
 
   // Validate owner/repo format
   if (!validateOwnerRepo(owner, repo)) {
-    return res.status(400).json({ error: 'Invalid owner or repo format' });
+    return res.status(400).json({
+      error: 'Invalid owner or repo format',
+      details: 'Owner: 1-39자, 영문/숫자/하이픈만 허용 (시작/끝에 하이픈 불가). Repo: 1-100자, 영문/숫자/점/밑줄/하이픈만 허용.'
+    });
   }
 
   const results = [];
@@ -98,7 +101,7 @@ module.exports = async (req, res) => {
         nodeId,
         signature,
         status: 400,
-        error: 'Invalid issue format',
+        error: `Invalid issue format: 제목 ${title?.length || 0}/256자, 본문 ${body?.length || 0}/65536자 제한`,
       });
       continue;
     }
@@ -122,13 +125,11 @@ module.exports = async (req, res) => {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         failed += 1;
-        // Log detailed error but return generic message
-        console.error('GitHub API error:', data?.message || response.statusText);
         results.push({
           nodeId,
           signature,
           status: response.status,
-          error: 'Failed to create issue',
+          error: data?.message || response.statusText,
         });
         continue;
       }
