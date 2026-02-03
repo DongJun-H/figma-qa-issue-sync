@@ -508,7 +508,22 @@ error: "Repository not found"
 error: "Invalid owner or repo format: Owner: 1-39자, 영문/숫자/하이픈만 허용..."
 ```
 
-> **참고**: 외부 사용자에게 API를 공개하는 SaaS라면 에러 메시지 일반화가 필요합니다.
+**QA_SYNC_SECRET으로 상세 에러 보호**
+
+GitHub 저장소가 공개되어 Vercel URL이 노출되는 경우, `QA_SYNC_SECRET`을 설정하면 상세 에러 메시지가 보호됩니다:
+
+```
+[요청] → [Secret 검증] → 실패 시 "Unauthorized" 만 반환 (상세 정보 없음)
+                      → 성공 시 정상 처리 (상세 에러 포함)
+```
+
+| QA_SYNC_SECRET | 요청 | 응답 |
+|----------------|------|------|
+| 설정함 + Secret 없음/틀림 | 모든 요청 | `401 Unauthorized` |
+| 설정함 + Secret 맞음 | 정상 요청 | 상세 에러 메시지 |
+| 미설정 | 모든 요청 | 상세 에러 메시지 |
+
+> **권장**: 공개 저장소인 경우 `QA_SYNC_SECRET` 환경변수를 설정하세요.
 
 #### XSS 방지
 
