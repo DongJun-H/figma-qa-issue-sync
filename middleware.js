@@ -1,6 +1,5 @@
 import { Ratelimit } from '@upstash/ratelimit';
 import { kv } from '@vercel/kv';
-import { NextResponse } from 'next/server';
 
 const ratelimit = new Ratelimit({
   redis: kv,
@@ -9,18 +8,21 @@ const ratelimit = new Ratelimit({
 });
 
 export default async function middleware(request) {
+  const url = new URL(request.url);
+
   // Only apply rate limiting to API routes
-  if (!request.nextUrl.pathname.startsWith('/api/')) {
-    return NextResponse.next();
+  if (!url.pathname.startsWith('/api/')) {
+    return;
   }
 
-  const ip = request.ip ?? request.headers.get('x-forwarded-for') ?? '127.0.0.1';
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] ?? '127.0.0.1';
   const { success, limit, reset, remaining } = await ratelimit.limit(ip);
 
   if (!success) {
     return new Response('Too Many Requests', {
       status: 429,
       headers: {
+        'Content-Type': 'text/plain',
         'X-RateLimit-Limit': limit.toString(),
         'X-RateLimit-Remaining': remaining.toString(),
         'X-RateLimit-Reset': reset.toString(),
@@ -28,12 +30,8 @@ export default async function middleware(request) {
     });
   }
 
-  const response = NextResponse.next();
-  response.headers.set('X-RateLimit-Limit', limit.toString());
-  response.headers.set('X-RateLimit-Remaining', remaining.toString());
-  response.headers.set('X-RateLimit-Reset', reset.toString());
-
-  return response;
+  // Continue to the API route (no response = pass through)
+  return;
 }
 
 export const config = {
