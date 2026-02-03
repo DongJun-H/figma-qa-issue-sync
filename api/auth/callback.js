@@ -1,7 +1,6 @@
 const { kv } = require('@vercel/kv');
 const crypto = require('crypto');
 const { encrypt } = require('../../lib/crypto');
-const { verifyFingerprint } = require('../../lib/security');
 
 module.exports = async (req, res) => {
   const { code, state, error } = req.query;
@@ -15,15 +14,10 @@ module.exports = async (req, res) => {
     return sendErrorPage(res, '잘못된 요청입니다.');
   }
 
-  // Verify state
+  // Verify state (provides CSRF protection)
   const stateData = await kv.get(`oauth:state:${state}`);
   if (!stateData || stateData.status !== 'pending') {
     return sendErrorPage(res, '로그인 세션이 만료되었습니다. 다시 시도해주세요.');
-  }
-
-  // Verify fingerprint for CSRF protection
-  if (stateData.fingerprint && !verifyFingerprint(stateData.fingerprint, req.headers['user-agent'])) {
-    return sendErrorPage(res, '요청 출처를 확인할 수 없습니다.');
   }
 
   // Exchange code for access token
